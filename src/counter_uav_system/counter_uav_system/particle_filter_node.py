@@ -95,6 +95,28 @@ class SensorParticleFilter:
             position_noise = np.random.normal(0, 0.02, 3)  # Reduced noise
             self.particles[i] += position_noise
             
+
+    def _systematic_resample(self):
+        """Helper for systematic resampling"""
+        # Calculate cumulative sum of weights
+        cumulative_sum = np.cumsum(self.weights)
+        cumulative_sum[-1] = 1.0  # Ensure numerical stability
+        
+        # Create systematic steps
+        step = 1.0 / self.num_particles
+        start = np.random.uniform(0, step)
+        positions = np.arange(self.num_particles) * step + start
+        
+        indices = np.zeros(self.num_particles, dtype=int)
+        i, j = 0, 0
+        while i < self.num_particles:
+            if positions[i] < cumulative_sum[j]:
+                indices[i] = j
+                i += 1
+            else:
+                j += 1
+                
+        return indices
     # def resample(self):
     #     """Resample particles based on weights"""
     #     indices = np.random.choice(
@@ -461,6 +483,9 @@ class ParticleFilterNode(Node):
         # Publisher for filter results
         self.filter_state_pub = self.create_publisher(ParticleFilterState, '/filter/state', 10)
         
+        # Publisher for Pan-Tilt Aiming
+        self.aiming_pub = self.create_publisher(Point, '/cmd_point', 10)
+
         # Visualization
         self.setup_plot()
         
@@ -532,6 +557,16 @@ class ParticleFilterNode(Node):
         
         self.estimated_positions.append(estimated_position.copy())
         
+        # Create standard Point message for the Pan-Tilt system
+        aiming_msg = Point()
+        aiming_msg.x = float(estimated_position[0])
+        aiming_msg.y = float(estimated_position[1])
+        aiming_msg.z = float(estimated_position[2])
+        
+        # Publish to /cmd_point so the turret moves
+        self.aiming_pub.publish(aiming_msg)
+
+
         # Publish filter state
         filter_msg = ParticleFilterState()
         filter_msg.header.stamp = self.get_clock().now().to_msg()
