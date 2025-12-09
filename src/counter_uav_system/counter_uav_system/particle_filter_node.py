@@ -122,13 +122,16 @@ class ParticleFilterNode(Node):
         self.latest_pp_data = None
         self.latest_true_state = None
         
+        # Subscribers
         self.pp_sub = self.create_subscription(
             PointPillarsData, '/sensors/point_pillars', self.pp_callback, 10)
         
         self.true_state_sub = self.create_subscription(
             DroneState, '/drone/true_state', self.true_state_callback, 10)
         
+        # Publishers
         self.vis_pub = self.create_publisher(Marker, '/filter/visualization_marker', 10)
+        self.aiming_pub = self.create_publisher(Point, '/cmd_point', 10) # <--- RESTORED THIS
         
         self.timer = self.create_timer(0.05, self.process_measurements)
         self.get_logger().info(f"Particle Filter Node started in frame: {self.global_frame}")
@@ -140,13 +143,21 @@ class ParticleFilterNode(Node):
         self.latest_true_state = np.array([msg.true_position.x, msg.true_position.y, msg.true_position.z])
 
     def process_measurements(self):
-        # DEBUG: Check if we are receiving data
         if self.latest_pp_data is None:
             self.get_logger().warn("WAITING FOR DATA: No PointPillars data received yet on /sensors/point_pillars", throttle_duration_sec=2.0)
         else:
             self.particle_filter.process_pp_measurement(self.latest_pp_data)
             
         estimated_position = self.particle_filter.estimate_position()
+        
+        # 1. Publish Aiming Command (RESTORED)
+        aiming_msg = Point()
+        aiming_msg.x = float(estimated_position[0])
+        aiming_msg.y = float(estimated_position[1])
+        aiming_msg.z = float(estimated_position[2])
+        self.aiming_pub.publish(aiming_msg)
+        
+        # 2. Publish Visualization
         self.publish_markers(estimated_position, self.latest_true_state)
 
     def publish_markers(self, estimated_pos, true_pos):
@@ -164,10 +175,10 @@ class ParticleFilterNode(Node):
         marker.scale.y = 0.5
         marker.scale.z = 0.5
         
-        # --- COLOR CHANGED TO GREEN ---
+        # Green color
         marker.color.a = 1.0
         marker.color.r = 0.0
-        marker.color.g = 1.0  # Green = 1.0
+        marker.color.g = 1.0
         marker.color.b = 0.0 
         
         self.vis_pub.publish(marker)
